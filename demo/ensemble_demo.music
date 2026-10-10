@@ -1,0 +1,24 @@
+# 合奏演示：import 模块 + ensemble 合奏块
+import "lib/drums.music"
+speed bpm 120
+
+旋律 {
+5_ 6_ 5^ 5^ | 6^ 5^ 5 6 |
+3,,_ 4,,_ 5,,_ 4,,_ | 3,,-- 0 0 0 |
+}
+
+低音 {
+1,, 1,, 1,, 1,, | 1,, 1,, 1,, 1,, |
+1,,,_ 0_ 1,,,_ 0_ | 1,,,-- 0 0 0 |
+}
+
+ensemble {
+play 旋律
+play 低音
+play drums.鼓点A
+}
+
+ensemble {
+play 旋律
+play drums.鼓点B
+}

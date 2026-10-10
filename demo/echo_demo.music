@@ -1,0 +1,14 @@
+# echo 指令测试：分段回音/断奏 + noteoff 兼容
+speed bpm 140
+
+# 默认 echo on：连奏回音（4 音 → 4 消息）
+1 2 3 4 |
+# 断奏：干净利落（4 音 → 8 消息）
+echo off
+5 6 7 1^ |
+# 恢复回音（4 音 → 4 消息）
+echo on
+1 2 3 4 |
+# 兼容写法 noteoff on = echo off（4 音 → 8 消息）
+noteoff on
+5 5 5 5 |

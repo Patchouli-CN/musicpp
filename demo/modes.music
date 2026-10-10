@@ -1,0 +1,113 @@
+# 中古调式（教会调式）演示
+# 两种理解方式：
+#   ① 同主音对比 —— 都落在 do 上，靠升降号制造色彩（听"味道"差异）
+#   ② C 大调轮转 —— 同一套音换个起点，零升降号（理解调式本质）
+speed bpm 120
+echo off
+
+# ── 第一部分：同主音调式（从亮到暗排列）──────────────────────
+# 记谱口诀：降号 = 低半音那个音的 #（b3 写成 2#，b7 写成 6#）
+
+lydian_c {
+# Lydian：大调 + #4 —— 梦幻、漂浮、精灵感
+1_ 2_ 3_ 4#_ 5_ 6_ 7_ 1^_ |
+1,---- |
+}
+
+ionian_c {
+# Ionian：就是大调 —— 明亮、稳定
+1_ 2_ 3_ 4_ 5_ 6_ 7_ 1^_ |
+1,---- |
+}
+
+mixolydian_c {
+# Mixolydian：大调 + b7 —— 布鲁斯、摇滚、民谣
+1_ 2_ 3_ 4_ 5_ 6_ 6#_ 1^_ |
+1,---- |
+}
+
+dorian_c {
+# Dorian：小调 + 还原6 —— 爵士小调、忧郁但不绝望
+1_ 2_ 2#_ 4_ 5_ 6_ 6#_ 1^_ |
+1,---- |
+}
+
+aeolian_c {
+# Aeolian：就是自然小调 —— 悲伤、抒情
+1_ 2_ 2#_ 4_ 5_ 5#_ 6#_ 1^_ |
+1,---- |
+}
+
+phrygian_c {
+# Phrygian：小调 + b2 —— 西班牙、弗拉门戈、黑暗紧张
+1_ 1#_ 2#_ 4_ 5_ 5#_ 6#_ 1^_ |
+1,---- |
+}
+
+# ── 第二部分：C 大调音阶轮转（同一套音，不同起点）────────────
+# 看每行旋律：完全不用 #，因为用的就是 C 大调的七个音
+
+ionian_rot {
+# 1 到 1：Ionian
+1_ 2_ 3_ 4_ 5_ 6_ 7_ 1^_ |
+1,---- |
+}
+
+dorian_rot {
+# 2 到 2：Dorian
+2_ 3_ 4_ 5_ 6_ 7_ 1^_ 2^_ |
+2,---- |
+}
+
+phrygian_rot {
+# 3 到 3：Phrygian
+3_ 4_ 5_ 6_ 7_ 1^_ 2^_ 3^_ |
+3,---- |
+}
+
+lydian_rot {
+# 4 到 4：Lydian
+4_ 5_ 6_ 7_ 1^_ 2^_ 3^_ 4^_ |
+4,---- |
+}
+
+mixolydian_rot {
+# 5 到 5：Mixolydian
+5_ 6_ 7_ 1^_ 2^_ 3^_ 4^_ 5^_ |
+5,---- |
+}
+
+aeolian_rot {
+# 6 到 6：Aeolian
+6_ 7_ 1^ 2^ 3^ 4^ 5^ 6^ |
+6,---- |
+}
+
+# ── 演奏顺序 ────────────────────────────────────────────────
+# 第一部分：同主音对比（低音持续 do，听色彩变化）
+play lydian_c
+wait 500ms
+play ionian_c
+wait 500ms
+play mixolydian_c
+wait 500ms
+play dorian_c
+wait 500ms
+play aeolian_c
+wait 500ms
+play phrygian_c
+
+wait 2s
+
+# 第二部分：音阶轮转（每个调式落在自己的主音上）
+play ionian_rot
+wait 500ms
+play dorian_rot
+wait 500ms
+play phrygian_rot
+wait 500ms
+play lydian_rot
+wait 500ms
+play mixolydian_rot
+wait 500ms
+play aeolian_rot
