@@ -35,6 +35,7 @@ play 主题(+12)      # 高八度再来一遍
 - **GM 音色**：`instrument 小提琴`，中文别名 / 英文 GM 名 / program 号均可
 - **回音控制**：`echo on/off` 连奏混响与断奏，分段生效
 - **工程化**：行号 + 段落调用栈的错误报告、结构化日志、流式解析、协程播放、MIDI 后端抽象
+- **安全**：Billion Laughs 防护（展开步数/事件数/总时长三重上限，`musicpp::config` 运行时可调）
 - **全兼容**：最初的旧谱格式（裸数字速度行、`#noteoff`、双行声部）原样可跑
 
 ## 构建与运行
@@ -73,6 +74,7 @@ musicpp --version                  :: 版本与构建信息
 
 ```
 musicpp::log       结构化日志     [tag] LEVEL / message
+musicpp::config    运行时配置     解析上限（Billion Laughs 防护）
 musicpp::core      音高与 IR      Score / NoteEvent / 通道分配 / GM 音色表
 musicpp::parse     统一解析器     StreamBuilder（增量喂行，双产出 IR + TimedMsg 流）
 musicpp::backend   MIDI 后端      MidiOut 接口 / winmm / Null
@@ -84,4 +86,4 @@ musicpp::async     迷你协程运行时 task / Scheduler / channel
 
 ## 版本
 
-当前 **0.7.0**（见 `musicpp/version.hpp`）。语义化版本：新增指令/语法升 minor，1.0 留给语言规范冻结。
+当前 **0.8.0**（见 `musicpp/version.hpp`）。语义化版本：新增指令/语法升 minor，1.0 留给语言规范冻结。

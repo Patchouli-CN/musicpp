@@ -12,6 +12,7 @@
 #include "log.hpp"
 #include "error.hpp"
 #include "version.hpp"
+#include "config.hpp"
 #include "pitch.hpp"
 #include "instrument.hpp"
 #include "score.hpp"

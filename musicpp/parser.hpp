@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -30,6 +31,7 @@
 #include <vector>
 
 #include "error.hpp"
+#include "config.hpp"
 #include "instrument.hpp"
 #include "log.hpp"
 #include "pitch.hpp"
@@ -367,6 +369,8 @@ private:
     int program_ = 0;      // 当前音色（instrument 指令）
     int transpose_ = 0;    // 当前移调（play 参数的累加，半音数）
     bool artic_ = false;   // 当前断奏状态（echo off / noteoff on）
+    size_t steps_ = 0;         // 已展开处理的内容行（Billion Laughs 防护）
+    size_t total_events_ = 0;  // 已产出的音符事件总数（同上）
     int line_no_ = 0;
     int tick_ = 0;
     RunningClock clock_;
@@ -412,6 +416,10 @@ private:
     // ── 内容行分发（顶层与段落体共用）──────────────────────────────────────
     void handle_content_line(detail::SrcLine sl) {
         const std::string_view line = detail::trim(sl.text);
+        if (++steps_ > config::max_expansion_steps)
+            fail(std::format("展开规模超出上限（{} 行，Billion Laughs 防护；"
+                             "可用 musicpp::config::max_expansion_steps 调整）",
+                             config::max_expansion_steps), sl.no);
         if (collecting_ensemble_) {   // ensemble block 收录中
             if (line == "}") {
                 collecting_ensemble_ = false;
@@ -471,6 +479,11 @@ private:
         for (size_t t = 0; t < group.size(); ++t) {
             auto res = detail::parse_line(group[t]->text, velocity_, group[t]->no, frames_);
             group_len = std::max(group_len, res.length_ticks);
+            total_events_ += res.events.size();
+            if (total_events_ > config::max_events)
+                fail(std::format("音符事件总数超出上限（{}，Billion Laughs 防护；"
+                                 "可用 musicpp::config::max_events 调整）",
+                                 config::max_events), group[t]->no);
             const size_t track_idx = track_base_ + t;
             if (score_.tracks.size() <= track_idx) score_.tracks.resize(track_idx + 1);
             if (track_program_.size() <= track_idx) track_program_.resize(track_idx + 1, 0);
@@ -498,6 +511,12 @@ private:
                                     0x80u | ch | ((uint32_t)midi << 8)});
             }
         }
+        // IR 的 tick 是 int32：有效上限钳制到 int32，保证 tick_ 永不溢出
+        const int64_t tick_limit =
+            std::min<int64_t>(config::max_ticks, std::numeric_limits<int>::max());
+        if ((int64_t)group_len > tick_limit - tick_)
+            fail(std::format("全曲总时长超出上限（{} tick；可用 musicpp::config::max_ticks 调整）",
+                             config::max_ticks), group[0]->no);
         tick_ += group_len;
         if (sink_ && !msgs.empty()) sink_(std::move(msgs));
     }

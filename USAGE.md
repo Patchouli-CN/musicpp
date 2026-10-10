@@ -218,6 +218,13 @@ class MyOut final : public backend::MidiOut {
     void note_off(int ch, int midi) override { /* ... */ }
     void program_change(int ch, int program) override { /* ... */ }
 };
+
+// ⑥ 解析上限（Billion Laughs 防护）：play 是宏展开语义，
+//    DAG 式段落引用可让几十行谱面指数膨胀。默认值对正常谱面足够宽，
+//    跑可信的大型谱面可放宽，跑不可信谱面可收紧
+musicpp::config::max_expansion_steps = 10'000'000;  // 展开处理的内容行总数
+musicpp::config::max_events = 10'000'000;           // 音符事件总数（≈200MB）
+musicpp::config::max_ticks = 100'000'000;           // 总时长（≈4 小时 @bpm120）
 ```
 
 完整示例见 `examples/`（构建产物在 `demo/`）：
