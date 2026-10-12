@@ -1,6 +1,6 @@
 # musicpp 使用手册
 
-[返回 README](README.md) · 版本 0.7.0
+[返回 README](README.md) · 版本 0.8.0+（含 main 分支新增：复合时间字面量、力度记号、报错国际化、did-you-mean）
 
 ---
 
@@ -86,7 +86,8 @@ musicpp <file.music> [options]
 ```
 speed bpm 120        每分钟 120 个四分音符（1~2000）
 speed milisec 500    每个四分音符 500 毫秒（等价 bpm 120）
-speed milisec beat   也接受 timedelta 变量
+speed ms 500         milisec 的简写别名
+speed milisec beat   也接受 timedelta 变量（毫秒量纲；bpm 不接受变量）
 ```
 
 可写在中途变速。兼容：单独一行的裸数字 = `speed milisec`。
