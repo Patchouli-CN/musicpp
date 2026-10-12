@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "musicpp/musicpp.hpp"
 
@@ -13,21 +14,17 @@
 
 namespace {
 
-// argv 在 Windows 上是 ANSI(GBK) 字节：转 UTF-8，日志显示与 Unicode 文件名都安全
-std::string acp_to_utf8(std::string_view s) {
+// Windows 用 wmain 直接拿 UTF-16 命令行，转 UTF-8：
+// 日韩文等非 GBK 文件名也安全（窄 argv 走 ANSI 会丢字符）
 #ifdef _WIN32
+std::string wide_to_utf8(std::wstring_view s) {
     if (s.empty()) return {};
-    const int wlen = MultiByteToWideChar(CP_ACP, 0, s.data(), (int)s.size(), nullptr, 0);
-    std::wstring w(wlen, L'\0');
-    MultiByteToWideChar(CP_ACP, 0, s.data(), (int)s.size(), w.data(), wlen);
-    const int ulen = WideCharToMultiByte(CP_UTF8, 0, w.data(), wlen, nullptr, 0, nullptr, nullptr);
+    const int ulen = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0, nullptr, nullptr);
     std::string u(ulen, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.data(), wlen, u.data(), ulen, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), u.data(), ulen, nullptr, nullptr);
     return u;
-#else
-    return std::string(s);
-#endif
 }
+#endif
 
 void usage() {
     std::cout << musicpp::version_banner() << "\n"
@@ -41,14 +38,14 @@ void usage() {
 
 } // namespace
 
-int main(int argc, char** argv) {
+int real_main(int argc, const std::vector<std::string>& args) {
     if (argc < 2) { usage(); return 1; }
 
     std::string path;
     bool noteoff = false, dump = false;
     int volume = 100;
     for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
+        const std::string& a = args[i];
         if (a == "-h" || a == "--help") { usage(); return 0; }
         else if (a == "-v" || a == "--version") {
             std::cout << musicpp::version_banner() << "\n";
@@ -57,13 +54,13 @@ int main(int argc, char** argv) {
         else if (a == "--noteoff" || a == "--no-echo") noteoff = true;
         else if (a == "--trace") musicpp::log::set_level(musicpp::log::Level::trace);
         else if (a == "--dump") dump = true;
-        else if (a == "--volume" && i + 1 < argc) volume = std::stoi(argv[++i]);
+        else if (a == "--volume" && i + 1 < argc) volume = std::stoi(args[++i]);
         else if (a.starts_with('-') && a.size() > 1) {
             std::cerr << "unknown option: " << a << "\n";
             usage();
             return 1;
         }
-        else path = acp_to_utf8(a);
+        else path = a;
     }
     if (path.empty()) { usage(); return 1; }
 
@@ -107,3 +104,16 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t** wargv) {
+    std::vector<std::string> args(argc);
+    for (int i = 0; i < argc; ++i) args[i] = wide_to_utf8(wargv[i]);
+    return real_main(argc, args);
+}
+#else
+int main(int argc, char** argv) {
+    std::vector<std::string> args(argv, argv + argc);
+    return real_main(argc, args);
+}
+#endif
