@@ -1,10 +1,14 @@
 #pragma once
 // ════════════════════════════════════════════════════════════════════════════
-// musicpp::parse — 两趟解析器
+// musicpp::parse — 统一流式解析器
 //
-//   pass 1  split   —— 分行、收集段落定义（定义不出声）、剔除注释
-//   pass 2  build   —— 深度优先展开 play 引用（禁递归、速度快照/恢复），
-//                      音符行解析为 tick 事件，产出 Score IR
+//   StreamBuilder：增量喂行，同时产出两种形态
+//     1. Score IR（take_score）：tracks / tempo / waits 随解析增量生长，
+//        批处理 = 喂完全部行再取 IR（build_from_string/build_from_file）
+//     2. TimedMsg 流（set_sink）：每组音符解析完成立即按绝对毫秒时刻推送，
+//        流式播放 = sink 接协程 channel 边解析边出声
+//
+//   统一语言规则：先定义后引用——段落闭合（'}' 出现）之前不可 play。
 //
 // 语言要素:
 //   音符行      1~7 0 [] {} ^ , # - _ . * % & |（与原 .music 格式兼容）
@@ -14,11 +18,23 @@
 //   音色        instrument <名字|program号>          （GM 音色，未知回退钢琴）
 //   回音        echo on|off                          （on=连奏混响(默认) off=断奏）
 //   兼容        裸数字行 = speed milisec；#noteoff / noteoff on = echo off；# 注释
+//
+// 子模块（musicpp/parse/）:
+//   common.hpp    行/段落结构、trim、指令关键字表（唯一登记处）、错误抛出
+//   time.hpp      时间字面量与 timedelta 求值（纯函数，expected 返回）
+//   line.hpp      单行音符解析（相对 tick 事件序列）
+//   sections.hpp  段落头判定、import 模块段落切分
+//
+// 加新指令语法：
+//   1. parse/common.hpp 的 DIRECTIVE_KEYWORDS 加关键字
+//   2. StreamBuilder::DIRECTIVE_HANDLERS 注册 handler
+//   （两处由 static_assert 编译期对齐检查）
 // ════════════════════════════════════════════════════════════════════════════
 
 #include <algorithm>
 #include <charconv>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <limits>
@@ -36,236 +52,18 @@
 #include "log.hpp"
 #include "pitch.hpp"
 #include "score.hpp"
+#include "parse/common.hpp"
+#include "parse/time.hpp"
+#include "parse/line.hpp"
+#include "parse/sections.hpp"
 
 namespace musicpp::parse {
 
-namespace detail {
-
-struct SrcLine {
-    std::string text;
-    int no = 0;
-};
-
-struct Section {
-    std::string name;
-    int def_line = 0;
-    std::vector<SrcLine> lines;
-};
-
-inline std::string_view trim(std::string_view s) {
-    const auto b = s.find_first_not_of(" \t\r");
-    if (b == std::string_view::npos) return {};
-    return s.substr(b, s.find_last_not_of(" \t\r") - b + 1);
-}
-
-inline bool is_directive(std::string_view line, std::string_view kw) {
-    return line == kw || (line.starts_with(kw) &&
-           line.size() > kw.size() && (line[kw.size()] == ' ' || line[kw.size()] == '\t'));
-}
-
-inline bool is_any_directive(std::string_view line) {
-    return is_directive(line, "speed") || is_directive(line, "play") ||
-           is_directive(line, "noteoff") || is_directive(line, "echo") ||
-           is_directive(line, "wait") ||
-           is_directive(line, "timedelta") || is_directive(line, "import") ||
-           is_directive(line, "ensemble") || is_directive(line, "instrument");
-}
-
-// 段落定义头: "<名> {"（兼容形式）或 "名 {"（裸名形式）。
-// 返回段落名；不是段落头返回 nullopt。ensemble { 等关键字由调用方先判。
-inline std::optional<std::string> section_start(std::string_view line) {
-    if (!line.ends_with('{')) return std::nullopt;
-    const std::string_view head = trim(line.substr(0, line.size() - 1));
-    if (head.empty()) return std::nullopt;                       // "{135}" 和弦行
-    if (head.front() == '<') {                                   // <名> { 兼容形式
-        if (head.back() != '>' || head.size() < 3) return std::nullopt;
-        return std::string(head.substr(1, head.size() - 2));
-    }
-    if (head.find_first_of(" \t") != std::string_view::npos) return std::nullopt;
-    const char c = head.front();
-    if ((c >= '0' && c <= '7') || c == '[' || c == '{' || c == '|')
-        return std::nullopt;                                     // 音符行
-    if (is_any_directive(head)) return std::nullopt;             // 关键字另有其职
-    return std::string(head);
-}
-
-// play 的段落名参数: 接受 <名> 或裸名
-inline std::string_view play_name(std::string_view arg) {
-    if (arg.starts_with('<') && arg.ends_with('>') && arg.size() >= 3)
-        return arg.substr(1, arg.size() - 2);
-    return arg;
-}
-
-[[noreturn]] inline void fail(const std::string& what, int line,
-                              const std::vector<CallFrame>& stack) {
-    throw ScoreError(what, line, stack);
-}
-
-// ── 单行音符解析：产出相对 tick 的事件序列 ──────────────────────────────────
-struct LineResult {
-    std::vector<core::NoteEvent> events;
-    int length_ticks = 0;
-};
-
-inline LineResult parse_line(std::string s, int velocity, int line_no,
-                             const std::vector<CallFrame>& stack) {
-    using core::TICK_UNIT;
-    LineResult out;
-    std::vector<int> nbuf;      // 待发声的 MIDI 音（0 = 休止占位）
-    bool isChord = false;
-    int ctn = TICK_UNIT;        // 当前记号累积的时值
-    int tick = 0;
-
-    auto bad = [&](const std::string& what) -> void {
-        fail(std::format("{}: {}", what, trim(s)), line_no, stack);
-    };
-
-    s += ' ';  // 尾部补空格，保证最后一个记号也被结算
-    const int n = (int)s.size();
-    for (int i = 0; i < n; ++i) {
-        const char c = s[i];
-        switch (c) {
-            case '[': case '{': {
-                if (isChord) bad("和弦括号嵌套");
-                isChord = true;
-                break;
-            }
-            case ']': case '}': {
-                if (!isChord) bad("括号不匹配");
-                isChord = false;
-                break;
-            }
-            case ' ': case '\t': {
-                if (!isChord && !nbuf.empty()) {
-                    for (const int note : nbuf) {
-                        if (note > 0)
-                            out.events.push_back({tick, note, velocity, ctn});
-                    }
-                    nbuf.clear();
-                    tick += ctn;
-                    ctn = TICK_UNIT;
-                }
-                break;
-            }
-            case '|': break;                      // 小节线：仅排版
-            case '-': ctn += TICK_UNIT; break;    // 延音
-            case '_': ctn /= 2; break;            // 分音
-            case '*': ctn /= 3; break;
-            case '%': ctn /= 5; break;
-            case '&': ctn /= 7; break;
-            case '.': ctn = ctn * 3 / 2; break;   // 附点
-            case '0': nbuf.push_back(0); break;   // 休止符
-            default: {
-                if (c < '1' || c > '7') bad(std::format("非法字符 '{}'", c));
-                const int x = (int)c - '1';
-                int lvl = 3;   // 中央八度
-                bool sharp = false;
-                for (int j = i + 1; j < n; ++j) {
-                    if (s[j] == '^') ++lvl;
-                    else if (s[j] == ',') --lvl;
-                    else if (s[j] == '#') sharp = true;
-                    else break;
-                    ++i;
-                }
-                if (lvl < 0 || lvl > 6) bad("八度超出范围");
-                const int midi = core::midi_note(x, lvl, sharp);
-                if (midi < 0) bad("音高超出 MIDI 范围");
-                nbuf.push_back(midi);
-                break;
-            }
-        }
-    }
-    if (isChord) bad("和弦括号未闭合");
-    out.length_ticks = tick;
-    log::trace("音符行: {} 事件, {} tick (第 {} 行)", out.events.size(), tick, line_no);
-    return out;
-}
-
-} // namespace detail
-
-namespace detail {
-
-// 模块文件的段落提取（import 专用）：把文件切分为段落表 + 主流行。
-// 不做任何指令求值——主流的执行发生在 play <模块> 时。
-inline std::pair<std::vector<SrcLine>, std::vector<Section>>
-collect_sections(std::string_view text) {
-    std::vector<SrcLine> main_lines;
-    std::vector<Section> sections;
-    Section* cur = nullptr;
-    bool in_ensemble = false;   // ensemble block 内（含段落体内的）
-    int no = 0;
-
-    auto on_line = [&](std::string_view raw) {
-        ++no;
-        const std::string_view line = trim(raw);
-
-        if (cur) {
-            if (line == "}" && !in_ensemble) {
-                sections.push_back(std::move(*cur));
-                delete cur;
-                cur = nullptr;
-            } else {
-                if (detail::is_directive(line, "ensemble") && line.ends_with('{'))
-                    in_ensemble = true;
-                else if (line == "}" && in_ensemble)
-                    in_ensemble = false;
-                cur->lines.push_back({std::string(line), no});
-            }
-            return;
-        }
-
-        if (in_ensemble) {
-            main_lines.push_back({std::string(line), no});
-            if (line == "}") in_ensemble = false;
-            return;
-        }
-
-        if (line.empty()) { main_lines.push_back({}); return; }
-        if (line.starts_with('#')) {
-            if (line == "#noteoff") main_lines.push_back({"noteoff on", no});
-            return;
-        }
-        if (auto sec = detail::section_start(line)) {
-            cur = new Section{std::move(*sec), no, {}};
-            return;
-        }
-        if (detail::is_directive(line, "ensemble") && line.ends_with('{')) {
-            in_ensemble = true;
-            main_lines.push_back({std::string(line), no});
-            return;
-        }
-        if (line == "}") fail("孤立的 '}'（没有匹配的段落定义）", no, {});
-        main_lines.push_back({std::string(line), no});
-    };
-
-    for (size_t pos = 0; pos <= text.size();) {
-        const size_t eol = text.find('\n', pos);
-        if (eol == std::string_view::npos) { on_line(text.substr(pos)); break; }
-        on_line(text.substr(pos, eol - pos));
-        pos = eol + 1;
-    }
-    if (cur) {
-        const int def = cur->def_line;
-        const std::string name = cur->name;
-        delete cur;
-        fail(std::format("段落 <{}> 的定义未闭合（缺少 '}}'）", name), def, {});
-    }
-    if (in_ensemble) fail("ensemble block 未闭合（缺少 '}'）", no, {});
-    return {std::move(main_lines), std::move(sections)};
-}
-
-} // namespace detail
+using detail::SrcLine;
+using detail::Section;
 
 // ════════════════════════════════════════════════════════════════════════════
-// StreamBuilder —— 唯一解析器：增量喂行，同时产出两种形态
-//
-//   1. Score IR（take_score）：tracks / tempo / waits 随解析增量生长，
-//      批处理 = 喂完全部行再取 IR（build_from_string/build_from_file）
-//   2. TimedMsg 流（set_sink）：每组音符解析完成立即按绝对毫秒时刻推送，
-//      流式播放 = sink 接协程 channel 边解析边出声
-//
-// 统一语言规则：先定义后引用——段落闭合（'}' 出现）之前不可 play。
-// （旧两趟批处理允许的前向引用已随架构统一移除，报错信息会明确指引。）
+// StreamBuilder —— 唯一解析器
 // ════════════════════════════════════════════════════════════════════════════
 class StreamBuilder {
 public:
@@ -331,7 +129,7 @@ public:
             flush_pending();
             if (sections_.contains(*sec))
                 fail(std::format("段落 <{}> 重复定义", *sec), line_no_);
-            collecting_ = detail::Section{std::move(*sec), line_no_, {}};
+            collecting_ = Section{std::move(*sec), line_no_, {}};
             log::debug("正在解析 <{}> block (第 {} 行)", collecting_->name, line_no_);
             return;
         }
@@ -378,11 +176,11 @@ private:
     std::string base_dir_;
 
     core::Score score_;                                            // 增量生长的 IR
-    std::optional<detail::Section> collecting_;                    // 收录中的段落
+    std::optional<Section> collecting_;                            // 收录中的段落
     bool collecting_ensemble_ = false;                             // 收录中的 ensemble block
-    std::vector<detail::SrcLine> ensemble_members_;
-    std::optional<detail::SrcLine> pending_;                       // 配对缓冲（一行）
-    std::unordered_map<std::string, detail::Section> sections_;    // 已闭合段落
+    std::vector<SrcLine> ensemble_members_;
+    std::optional<SrcLine> pending_;                               // 配对缓冲（一行）
+    std::unordered_map<std::string, Section> sections_;            // 已闭合段落
     std::unordered_map<std::string, double> timedeltas_;
     std::vector<std::string> import_stack_;
     std::unordered_set<std::string> imported_;
@@ -397,7 +195,7 @@ private:
         throw ScoreError(what, line, frames_);
     }
 
-    void register_section(std::string qname, detail::Section s, int line) {
+    void register_section(std::string qname, Section s, int line) {
         if (!sections_.emplace(qname, std::move(s)).second)
             fail(std::format("段落 <{}> 重复定义", qname), line);
     }
@@ -414,7 +212,7 @@ private:
     }
 
     // ── 内容行分发（顶层与段落体共用）──────────────────────────────────────
-    void handle_content_line(detail::SrcLine sl) {
+    void handle_content_line(SrcLine sl) {
         const std::string_view line = detail::trim(sl.text);
         if (++steps_ > config::max_expansion_steps)
             fail(std::format("展开规模超出上限（{} 行，Billion Laughs 防护；"
@@ -467,12 +265,12 @@ private:
 
     void flush_pending() {
         if (!pending_) return;
-        const detail::SrcLine* solo = &*pending_;
+        const SrcLine* solo = &*pending_;
         play_group({solo});
         pending_.reset();
     }
 
-    void play_group(std::vector<const detail::SrcLine*> group) {
+    void play_group(std::vector<const SrcLine*> group) {
         const int start = tick_;
         std::vector<core::TimedMsg> msgs;
         int group_len = 0;
@@ -521,15 +319,13 @@ private:
         if (sink_ && !msgs.empty()) sink_(std::move(msgs));
     }
 
+    // ── 指令分发：注册表驱动 ────────────────────────────────────────────────
+    // 注册表 DIRECTIVE_HANDLERS 在类尾部（静态成员初始化器不是完整类上下文，
+    // 需要 handler 声明先出现）。加新指令 = 写 handler + 注册一行
+    // + common.hpp 关键字表加一行（两表由 static_assert 编译期对齐检查）。
     void directive(std::string_view line, int no) {
-        if (detail::is_directive(line, "speed")) directive_speed(line, no);
-        else if (detail::is_directive(line, "play")) directive_play(line, no);
-        else if (detail::is_directive(line, "echo")) directive_echo(line, no);
-        else if (detail::is_directive(line, "noteoff")) directive_noteoff(line, no);
-        else if (detail::is_directive(line, "wait")) directive_wait(line, no);
-        else if (detail::is_directive(line, "timedelta")) directive_timedelta(line, no);
-        else if (detail::is_directive(line, "instrument")) directive_instrument(line, no);
-        else if (detail::is_directive(line, "import")) directive_import(line, no);
+        for (const auto& [kw, h] : DIRECTIVE_HANDLERS)
+            if (detail::is_directive(line, kw)) { (this->*h)(line, no); return; }
     }
 
     void directive_speed(std::string_view line, int no) {
@@ -618,7 +414,7 @@ private:
 
     // ensemble { play A / play B / ... }：成员同一 tick 起跑，块长取最长；
     // 按段落名分配声部，同一名字在不同合奏块中复用同一声部
-    void exec_ensemble(const std::vector<detail::SrcLine>& members, int no) {
+    void exec_ensemble(const std::vector<SrcLine>& members, int no) {
         if (members.empty()) { log::debug("ensemble: 空 block"); return; }
         const int start = tick_;
         int end = start;
@@ -686,7 +482,7 @@ private:
         log::info("import \"{}\": 模块 <{}> ({} 段落)", rel, mod, mod_sections.size());
 
         // 被导入文件自己的 import 先行（顶层指令）
-        std::vector<detail::SrcLine> rest;
+        std::vector<SrcLine> rest;
         for (auto& sl : mod_lines) {
             const std::string_view t = detail::trim(sl.text);
             if (detail::is_directive(t, "import")) directive_import(t, sl.no);
@@ -696,7 +492,7 @@ private:
             auto qname = mod + "." + s.name;   // 先取限定名再 move（参数求值顺序不定）
             register_section(std::move(qname), std::move(s), no);
         }
-        register_section(mod, detail::Section{mod, no, std::move(rest)}, no);
+        register_section(mod, Section{mod, no, std::move(rest)}, no);
 
         base_dir_ = saved_base;
         import_stack_.pop_back();
@@ -769,31 +565,11 @@ private:
         log::debug("timedelta {} = {:.0f} ms", name, ms);
     }
 
-    // 时间值求值：字面量（数字[.数字][ms|s|m|h|d]，无单位按 ms）或 timedelta 名
+    // 时间值求值：字面量 + timedelta 变量表（实现见 parse/time.hpp 纯函数模块）
     double resolve_time(std::string_view tok, int no) {
-        size_t i = 0;
-        while (i < tok.size() && ((tok[i] >= '0' && tok[i] <= '9') || tok[i] == '.')) ++i;
-        if (i == 0) {
-            const auto it = timedeltas_.find(std::string(tok));
-            if (it == timedeltas_.end())
-                fail(std::format("未定义的 timedelta '{}'", tok), no);
-            return it->second;
-        }
-        double v = 0;
-        const auto [ptr, ec] = std::from_chars(tok.data(), tok.data() + i, v);
-        if (ec != std::errc{} || ptr != tok.data() + i)
-            fail(std::format("时间数值无法解析: {}", tok), no);
-        const std::string_view unit = tok.substr(i);
-        double mult;
-        if (unit.empty() || unit == "ms") mult = 1;
-        else if (unit == "s")  mult = 1000;
-        else if (unit == "m")  mult = 60000;
-        else if (unit == "h")  mult = 3600000;
-        else if (unit == "d")  mult = 86400000;
-        else fail(std::format("未知时间单位 '{}'（支持 ms/s/m/h/d）", unit), no);
-        const double ms = v * mult;
-        if (ms <= 0 || ms > 86400000.0) fail(std::format("时间值超出范围: {}", tok), no);
-        return ms;
+        auto r = time::resolve(tok, timedeltas_);
+        if (!r) fail(r.error(), no);
+        return *r;
     }
 
     // 兼容：裸数字行 = speed milisec
@@ -809,7 +585,49 @@ private:
         set_tempo(v, no);
         return true;
     }
+
+    // ── 指令注册表（加新指令在这里登记）────────────────────────────────────
+    // 实现细节；公开以便类外做编译期对齐检查、工具读取
+public:
+    using Handler = void (StreamBuilder::*)(std::string_view, int);
+    static constexpr std::pair<std::string_view, Handler> DIRECTIVE_HANDLERS[] = {
+        {"speed",      &StreamBuilder::directive_speed},
+        {"play",       &StreamBuilder::directive_play},
+        {"echo",       &StreamBuilder::directive_echo},
+        {"noteoff",    &StreamBuilder::directive_noteoff},
+        {"wait",       &StreamBuilder::directive_wait},
+        {"timedelta",  &StreamBuilder::directive_timedelta},
+        {"instrument", &StreamBuilder::directive_instrument},
+        {"import",     &StreamBuilder::directive_import},
+    }
+    ;
+private:
 };
+
+namespace detail {
+
+// 编译期对齐检查：handler 表 ⊆ 关键字表；关键字表除 ensemble（块收录，无 handler）外
+// 每个关键字都要有 handler
+consteval bool directive_registry_aligned() {
+    for (const auto& [kw, h] : StreamBuilder::DIRECTIVE_HANDLERS) {
+        bool found = false;
+        for (const std::string_view k : DIRECTIVE_KEYWORDS)
+            if (k == kw) { found = true; break; }
+        if (!found) return false;
+    }
+    for (const std::string_view k : DIRECTIVE_KEYWORDS) {
+        if (k == "ensemble") continue;
+        bool found = false;
+        for (const auto& [kw, h] : StreamBuilder::DIRECTIVE_HANDLERS)
+            if (kw == k) { found = true; break; }
+        if (!found) return false;
+    }
+    return true;
+}
+static_assert(directive_registry_aligned(),
+              "DIRECTIVE_KEYWORDS 与 DIRECTIVE_HANDLERS 不对齐（加新指令要两边都登记）");
+
+} // namespace detail
 
 // ════════════════════════════════════════════════════════════════════════════
 // 入口：批处理 = 全部行喂给统一解析器，再取 Score IR

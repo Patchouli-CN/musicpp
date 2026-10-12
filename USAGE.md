@@ -92,6 +92,7 @@ speed milisec beat   也接受 timedelta 变量
 
 ```
 wait 5s              停 5 秒（单位：ms / s / m / h / d，无单位按毫秒）
+wait 1m30s           复合字面量：多段拼接，单位须从大到小（1h30m15.5s 合法，30s1m 报错）
 timedelta 段间换气 = 500ms
 wait 段间换气        变量要先声明后使用（顶层声明，常量不可变）
 ```
