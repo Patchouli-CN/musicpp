@@ -1,0 +1,65 @@
+# musicpp language file: English (en)
+# Format: key = value, # comments, UTF-8
+# In messages with {} placeholders, literal braces must be escaped as {{ }}
+
+error.limit.expansion_steps = expansion limit exceeded ({} lines, Billion Laughs guard; tune musicpp::config::max_expansion_steps)
+error.limit.events = note event limit exceeded ({}, Billion Laughs guard; tune musicpp::config::max_events)
+error.limit.ticks = total duration limit exceeded ({} ticks; tune musicpp::config::max_ticks)
+
+error.section.nested = section definitions cannot be nested or appear here
+error.section.duplicate = section <{}> is already defined
+error.section.unclosed = section <{}> is not closed (missing '}}')
+error.section.not_ready = section <{}> is still being parsed and cannot be played yet (define before use)
+error.section.undefined = undefined (or not yet parsed) section <{}>
+error.section.cycle = section reference cycle: {}
+error.section.too_deep = section nesting too deep (>64 levels)
+error.brace.orphan = stray '}' (no matching section definition)
+error.ensemble.format = ensemble directive should be: ensemble {{ followed by play lines: {}
+error.ensemble.unclosed = ensemble block is not closed (missing '}')
+error.ensemble.member_play = ensemble members must be play directives (express speed/wait inside sections via note durations)
+
+error.tempo.range = tempo out of range: {}
+error.speed.missing_value = speed directive needs a value: {}
+error.speed.bpm_needs_number = bpm needs a number (timedelta is in milliseconds; use it with speed milisec): {}
+error.speed.bad_number = cannot parse tempo value: {}
+error.speed.bpm_range = bpm out of range: {}
+error.speed.unknown_unit = unknown speed unit '{}' (supported: bpm / milisec)
+
+error.play.format = play directive should be: play name or play <name>: {}
+error.play.transpose_format = play transpose argument should be name(+N)/name(-N): {}
+error.play.transpose_sign = play transpose argument needs a signed integer (semitones): {}
+error.play.transpose_range = transpose out of range (±36 semitones): {}
+error.play.transpose_pitch = pitch out of MIDI range ({}) after transposing {:+d}
+
+error.import.top_level_only = import is only allowed at top level
+error.import.format = import directive should be: import "path": {}
+error.import.cycle = import cycle: {}
+error.import.not_found = imported file not found: {}
+
+error.instrument.missing = instrument directive needs an instrument name: {}
+warn.instrument.unknown = unknown instrument '{}' (line {}), falling back to standard voice [piano]
+error.echo.arg = echo directive argument should be on/off: {}
+error.noteoff.arg = noteoff directive argument should be on/off: {}
+
+error.wait.missing = wait directive needs a time value: {}
+error.timedelta.in_section = timedelta declarations are not allowed inside sections (move to top level)
+error.timedelta.format = timedelta declaration should be: timedelta <name> = <time value>: {}
+error.timedelta.missing_eq = timedelta declaration missing '=': {}
+error.timedelta.bad_name = invalid timedelta name: {}
+error.timedelta.duplicate = timedelta '{}' redeclared (constants are immutable)
+error.time.missing_number = time value missing a number: {}
+error.time.bad_number = cannot parse time value: {}
+error.time.unknown_unit = unknown time unit '{}' (supported: ms/s/m/h/d): {}
+error.time.unit_order = time units must be written largest-first (e.g. 1m30s, not {})
+error.time.range = time value out of range: {}
+error.time.undefined_var = undefined timedelta '{}'
+
+error.chord.nested = nested chord brackets
+error.chord.mismatch = mismatched brackets
+error.chord.unclosed = chord brackets not closed
+error.line.illegal_char = illegal character '{}'
+error.pitch.octave_range = octave out of range
+error.pitch.midi_range = pitch out of MIDI range
+
+error.file.open = cannot open file: {}
+hint.did_you_mean = , did you mean <{}>?

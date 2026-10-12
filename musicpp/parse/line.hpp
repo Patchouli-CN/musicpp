@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "../i18n.hpp"
 #include "../log.hpp"
 #include "../pitch.hpp"
 #include "../score.hpp"
@@ -32,7 +33,7 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
     int tick = 0;
 
     auto bad = [&](const std::string& what) -> void {
-        fail(std::format("{}: {}", what, trim(s)), line_no, stack);
+        musicpp_seterror(std::format("{}: {}", what, trim(s)), line_no, stack);
     };
 
     s += ' ';  // 尾部补空格，保证最后一个记号也被结算
@@ -41,12 +42,12 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
         const char c = s[i];
         switch (c) {
             case '[': case '{': {
-                if (isChord) bad("和弦括号嵌套");
+                if (isChord) bad(i18n::tr("error.chord.nested"));
                 isChord = true;
                 break;
             }
             case ']': case '}': {
-                if (!isChord) bad("括号不匹配");
+                if (!isChord) bad(i18n::tr("error.chord.mismatch"));
                 isChord = false;
                 break;
             }
@@ -71,7 +72,7 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
             case '.': ctn = ctn * 3 / 2; break;   // 附点
             case '0': nbuf.push_back(0); break;   // 休止符
             default: {
-                if (c < '1' || c > '7') bad(std::format("非法字符 '{}'", c));
+                if (c < '1' || c > '7') bad(i18n::tr("error.line.illegal_char", c));
                 const int x = (int)c - '1';
                 int lvl = 3;   // 中央八度
                 bool sharp = false;
@@ -82,15 +83,15 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
                     else break;
                     ++i;
                 }
-                if (lvl < 0 || lvl > 6) bad("八度超出范围");
+                if (lvl < 0 || lvl > 6) bad(i18n::tr("error.pitch.octave_range"));
                 const int midi = core::midi_note(x, lvl, sharp);
-                if (midi < 0) bad("音高超出 MIDI 范围");
+                if (midi < 0) bad(i18n::tr("error.pitch.midi_range"));
                 nbuf.push_back(midi);
                 break;
             }
         }
     }
-    if (isChord) bad("和弦括号未闭合");
+    if (isChord) bad(i18n::tr("error.chord.unclosed"));
     out.length_ticks = tick;
     log::trace("音符行: {} 事件, {} tick (第 {} 行)", out.events.size(), tick, line_no);
     return out;

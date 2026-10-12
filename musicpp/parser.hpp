@@ -48,6 +48,7 @@
 
 #include "error.hpp"
 #include "config.hpp"
+#include "i18n.hpp"
 #include "instrument.hpp"
 #include "log.hpp"
 #include "pitch.hpp"
@@ -128,13 +129,13 @@ public:
         if (auto sec = detail::section_start(line)) {
             flush_pending();
             if (sections_.contains(*sec))
-                fail(std::format("段落 <{}> 重复定义", *sec), line_no_);
+                musicpp_seterror(i18n::tr("error.section.duplicate", *sec), line_no_);
             collecting_ = Section{std::move(*sec), line_no_, {}};
             log::debug("正在解析 <{}> block (第 {} 行)", collecting_->name, line_no_);
             return;
         }
         if (line == "}" && !collecting_ensemble_)
-            fail("孤立的 '}'（没有匹配的段落定义）", line_no_);
+            musicpp_seterror(i18n::tr("error.brace.orphan"), line_no_);
 
         handle_content_line({std::string(line), line_no_});
     }
@@ -142,10 +143,10 @@ public:
     void finish() {
         flush_pending();
         if (collecting_)
-            fail(std::format("段落 <{}> 的定义未闭合（缺少 '}}'）", collecting_->name),
+            musicpp_seterror(i18n::tr("error.section.unclosed", collecting_->name),
                  collecting_->def_line);
         if (collecting_ensemble_)
-            fail("ensemble block 未闭合（缺少 '}'）", line_no_);
+            musicpp_seterror(i18n::tr("error.ensemble.unclosed"), line_no_);
         // 尾部保持标记（raw==0）：让消费方等到最后一个音走完时值
         if (sink_ && last_end_ > 0) sink_({{last_end_, 0u}});
         log::debug("解析收尾: {} 段落, {} 行", sections_.size(), line_no_);
@@ -191,18 +192,18 @@ private:
     std::vector<int> track_program_;                               // 声部当前音色（增量跟踪）
     double last_end_ = 0.0;                                        // 最后音符的结束时刻（ms）
 
-    [[noreturn]] void fail(const std::string& what, int line) {
+    [[noreturn]] void musicpp_seterror(const std::string& what, int line) {
         throw ScoreError(what, line, frames_);
     }
 
     void register_section(std::string qname, Section s, int line) {
         if (!sections_.emplace(qname, std::move(s)).second)
-            fail(std::format("段落 <{}> 重复定义", qname), line);
+            musicpp_seterror(std::format("段落 <{}> 重复定义", qname), line);
     }
 
     void set_tempo(double mpq, int line) {
         if (mpq <= 0 || mpq > 60000)
-            fail(std::format("速度超出范围: {}", mpq), line);
+            musicpp_seterror(i18n::tr("error.tempo.range", mpq), line);
         clock_.set_tempo(tick_, mpq);
         if (!score_.tempo.empty() && score_.tempo.back().tick == tick_)
             score_.tempo.back().ms_per_quarter = mpq;   // 同 tick 覆盖
@@ -215,9 +216,7 @@ private:
     void handle_content_line(SrcLine sl) {
         const std::string_view line = detail::trim(sl.text);
         if (++steps_ > config::max_expansion_steps)
-            fail(std::format("展开规模超出上限（{} 行，Billion Laughs 防护；"
-                             "可用 musicpp::config::max_expansion_steps 调整）",
-                             config::max_expansion_steps), sl.no);
+            musicpp_seterror(i18n::tr("error.limit.expansion_steps", config::max_expansion_steps), sl.no);
         if (collecting_ensemble_) {   // ensemble block 收录中
             if (line == "}") {
                 collecting_ensemble_ = false;
@@ -239,11 +238,11 @@ private:
             return;
         }
         if (line.starts_with('<') || detail::section_start(line))
-            fail("段落定义不能嵌套或出现在此处", sl.no);
+            musicpp_seterror(i18n::tr("error.section.nested"), sl.no);
         if (detail::is_directive(line, "ensemble")) {
             flush_pending();
             if (!line.ends_with('{'))
-                fail(std::format("ensemble 指令格式应为 ensemble {{: {}", line), sl.no);
+                musicpp_seterror(i18n::tr("error.ensemble.format", line), sl.no);
             collecting_ensemble_ = true;
             return;
         }
@@ -279,9 +278,7 @@ private:
             group_len = std::max(group_len, res.length_ticks);
             total_events_ += res.events.size();
             if (total_events_ > config::max_events)
-                fail(std::format("音符事件总数超出上限（{}，Billion Laughs 防护；"
-                                 "可用 musicpp::config::max_events 调整）",
-                                 config::max_events), group[t]->no);
+                musicpp_seterror(i18n::tr("error.limit.events", config::max_events), group[t]->no);
             const size_t track_idx = track_base_ + t;
             if (score_.tracks.size() <= track_idx) score_.tracks.resize(track_idx + 1);
             if (track_program_.size() <= track_idx) track_program_.resize(track_idx + 1, 0);
@@ -298,8 +295,7 @@ private:
                 const uint32_t ch = (uint32_t)core::channel_for_track(track_idx);
                 const int midi = ev.midi + transpose_;
                 if (midi < core::MIDI_MIN || midi > core::MIDI_MAX)
-                    fail(std::format("移调 {:+d} 后音高超出 MIDI 范围（{}）",
-                                     transpose_, midi), group[t]->no);
+                    musicpp_seterror(i18n::tr("error.play.transpose_pitch", transpose_, midi), group[t]->no);
                 score_.tracks[track_idx].notes.push_back({tick, midi, ev.velocity, ev.dur_ticks, artic_});
                 last_end_ = std::max(last_end_, clock_.at(tick + ev.dur_ticks));
                 msgs.push_back({clock_.at(tick),
@@ -313,8 +309,7 @@ private:
         const int64_t tick_limit =
             std::min<int64_t>(config::max_ticks, std::numeric_limits<int>::max());
         if ((int64_t)group_len > tick_limit - tick_)
-            fail(std::format("全曲总时长超出上限（{} tick；可用 musicpp::config::max_ticks 调整）",
-                             config::max_ticks), group[0]->no);
+            musicpp_seterror(i18n::tr("error.limit.ticks", config::max_ticks), group[0]->no);
         tick_ += group_len;
         if (sink_ && !msgs.empty()) sink_(std::move(msgs));
     }
@@ -332,26 +327,26 @@ private:
         std::string_view unit = detail::trim(line.substr(5));
         const auto sp = unit.find_first_of(" \t");
         if (sp == std::string_view::npos)
-            fail(std::format("speed 指令缺少数值: {}", line), no);
+            musicpp_seterror(i18n::tr("error.speed.missing_value", line), no);
         const std::string_view val = detail::trim(unit.substr(sp));
         unit = unit.substr(0, sp);
         if (unit == "bpm") {
             if (val.empty() || ((val[0] < '0' || val[0] > '9') && val[0] != '.')) {
-                fail(timedeltas_.count(std::string(val))
-                    ? std::format("bpm 需要数值（timedelta 是毫秒量纲，请用于 speed milisec）: {}", line)
-                    : std::format("速度数值无法解析: {}", line), no);
+                musicpp_seterror(timedeltas_.count(std::string(val))
+                    ? i18n::tr("error.speed.bpm_needs_number", line)
+                    : i18n::tr("error.speed.bad_number", line), no);
             }
             double v = 0;
             const auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
             if (ec != std::errc{} || ptr != val.data() + val.size())
-                fail(std::format("速度数值无法解析: {}", line), no);
+                musicpp_seterror(i18n::tr("error.speed.bad_number", line), no);
             if (v < 1 || v > 2000)
-                fail(std::format("bpm 超出范围: {}", v), no);
+                musicpp_seterror(i18n::tr("error.speed.bpm_range", v), no);
             set_tempo(60000.0 / v, no);
         } else if (unit == "milisec" || unit == "ms") {
             set_tempo(resolve_time(val, no), no);
         } else {
-            fail(std::format("未知速度单位 '{}'（支持 bpm / milisec）", unit), no);
+            musicpp_seterror(i18n::tr("error.speed.unknown_unit", unit), no);
         }
     }
 
@@ -362,36 +357,40 @@ private:
         if (arg.ends_with(')')) {
             const auto lp = arg.find('(');
             if (lp == std::string_view::npos)
-                fail(std::format("play 移调参数格式应为 名(+N)/名(-N): {}", line), no);
+                musicpp_seterror(i18n::tr("error.play.transpose_format", line), no);
             std::string_view num = arg.substr(lp + 1, arg.size() - lp - 2);
             if (num.size() < 2 || (num.front() != '+' && num.front() != '-'))
-                fail(std::format("play 移调参数需要带符号的整数（半音数）: {}", line), no);
+                musicpp_seterror(i18n::tr("error.play.transpose_sign", line), no);
             const int sign = num.front() == '+' ? 1 : -1;
             num.remove_prefix(1);
             if (num.empty() || num.find_first_not_of("0123456789") != std::string_view::npos)
-                fail(std::format("play 移调参数需要带符号的整数（半音数）: {}", line), no);
+                musicpp_seterror(i18n::tr("error.play.transpose_sign", line), no);
             int v = 0;
             std::from_chars(num.data(), num.data() + num.size(), v);
-            if (v > 36) fail(std::format("移调超出范围（±36 半音）: {}", line), no);
+            if (v > 36) musicpp_seterror(i18n::tr("error.play.transpose_range", line), no);
             delta = sign * v;
             arg = detail::trim(arg.substr(0, lp));
         }
         const std::string_view nv = detail::play_name(arg);
         if (nv.empty())
-            fail(std::format("play 指令格式应为 play 名 或 play <名>: {}", line), no);
+            musicpp_seterror(i18n::tr("error.play.format", line), no);
         const std::string name(nv);
 
         if (collecting_ && collecting_->name == name)
-            fail(std::format("段落 <{}> 正在解析中，尚不能 play（要求先闭合后引用）", name), no);
+            musicpp_seterror(i18n::tr("error.section.not_ready", name), no);
         const auto it = sections_.find(name);
-        if (it == sections_.end())
-            fail(std::format("未定义（或尚未解析到）的段落 <{}>", name), no);
+        if (it == sections_.end()) {
+            std::vector<std::string_view> cands;
+            cands.reserve(sections_.size());
+            for (const auto& [k, v] : sections_) cands.push_back(k);
+            musicpp_seterror(i18n::tr("error.section.undefined", name) + detail::did_you_mean(name, cands), no);
+        }
         if (std::find(call_stack_.begin(), call_stack_.end(), name) != call_stack_.end()) {
             std::string cycle;
             for (const auto& s : call_stack_) cycle += s + " → ";
-            fail(std::format("段落引用形成环: {}{}", cycle, name), no);
+            musicpp_seterror(i18n::tr("error.section.cycle", cycle + name), no);
         }
-        if (frames_.size() >= 64) fail("段落嵌套过深（>64 层）", no);
+        if (frames_.size() >= 64) musicpp_seterror(i18n::tr("error.section.too_deep"), no);
 
         log::debug("展开段落 <{}>{} (第 {} 行调用)", name,
                    delta ? std::format(" ({:+d})", delta) : "", no);
@@ -424,7 +423,7 @@ private:
         for (const auto& m : members) {
             const std::string_view ml = detail::trim(m.text);
             if (!detail::is_directive(ml, "play"))
-                fail("ensemble 成员必须是 play 指令（成员内的 speed/wait 请改用音符时值表达）", m.no);
+                musicpp_seterror(i18n::tr("error.ensemble.member_play"), m.no);
             const std::string sec(detail::play_name(detail::trim(ml.substr(4))));
             const auto [it, inserted] = ensemble_tracks_.try_emplace(sec, next_free);
             (void)inserted;
@@ -443,11 +442,11 @@ private:
     // import "路径"：加载模块——其段落注册为 <模块.名>，主流注册为 <模块>
     void directive_import(std::string_view line, int no) {
         if (!frames_.empty())
-            fail("import 只能在顶层使用", no);
+            musicpp_seterror(i18n::tr("error.import.top_level_only"), no);
         const auto q1 = line.find('"');
         const auto q2 = line.find('"', q1 == std::string_view::npos ? q1 : q1 + 1);
         if (q1 == std::string_view::npos || q2 == std::string_view::npos)
-            fail(std::format("import 指令格式应为 import \"路径\": {}", line), no);
+            musicpp_seterror(i18n::tr("error.import.format", line), no);
         const std::string rel(line.substr(q1 + 1, q2 - q1 - 1));
 
         namespace fs = std::filesystem;
@@ -460,13 +459,13 @@ private:
         const fs::path canon = fs::weakly_canonical(p, ec);
         const std::string key = ec ? p.lexically_normal().string() : canon.string();
         if (std::find(import_stack_.begin(), import_stack_.end(), key) != import_stack_.end())
-            fail(std::format("import 形成环: {}", rel), no);
+            musicpp_seterror(i18n::tr("error.import.cycle", rel), no);
         if (imported_.contains(key)) {
             log::debug("模块已加载，跳过: {}", rel);
             return;
         }
         std::ifstream in(p, std::ios::binary);
-        if (!in) fail(std::format("import 的文件不存在: {}", p.string()), no);
+        if (!in) musicpp_seterror(i18n::tr("error.import.not_found", p.string()), no);
 
         imported_.insert(key);
         import_stack_.push_back(key);
@@ -503,10 +502,13 @@ private:
     void directive_instrument(std::string_view line, int no) {
         const std::string_view arg = detail::trim(line.substr(10));
         if (arg.empty())
-            fail(std::format("instrument 指令缺少乐器名: {}", line), no);
+            musicpp_seterror(i18n::tr("error.instrument.missing", line), no);
         const auto prog = core::instrument_program(arg);
         if (!prog) {
-            log::warn("未知乐器 '{}'（第 {} 行），回退标准音色 [钢琴]", arg, no);
+            std::vector<std::string_view> cands;
+            for (const auto& [k, v] : core::chinese_aliases()) cands.push_back(k);
+            for (const auto g : core::GM_NAMES) cands.push_back(g);
+            log::warn("{}", i18n::tr("warn.instrument.unknown", arg, no) + detail::did_you_mean(arg, cands));
             program_ = 0;
         } else {
             program_ = *prog;
@@ -520,7 +522,7 @@ private:
         std::string_view arg = detail::trim(line.substr(4));
         if (arg.empty() || arg == "on")       artic_ = false;
         else if (arg == "off")                artic_ = true;
-        else fail(std::format("echo 指令参数应为 on/off: {}", line), no);
+        else musicpp_seterror(i18n::tr("error.echo.arg", line), no);
         log::debug("echo {} ({}模式)", artic_ ? "off" : "on",
                    artic_ ? "articulated" : "sustained");
     }
@@ -530,14 +532,14 @@ private:
         std::string_view arg = detail::trim(line.substr(7));
         if (arg.empty() || arg == "on")       artic_ = true;
         else if (arg == "off")                artic_ = false;
-        else fail(std::format("noteoff 指令参数应为 on/off: {}", line), no);
+        else musicpp_seterror(i18n::tr("error.noteoff.arg", line), no);
         log::debug("noteoff {} (兼容写法, 等价 echo {})",
                    artic_ ? "on" : "off", artic_ ? "off" : "on");
     }
 
     void directive_wait(std::string_view line, int no) {
         const std::string_view val = detail::trim(line.substr(4));
-        if (val.empty()) fail(std::format("wait 指令缺少时间值: {}", line), no);
+        if (val.empty()) musicpp_seterror(i18n::tr("error.wait.missing", line), no);
         const double ms = resolve_time(val, no);
         clock_.add_wait(tick_, ms);
         score_.waits.push_back({tick_, ms});
@@ -546,20 +548,20 @@ private:
 
     void directive_timedelta(std::string_view line, int no) {
         if (!frames_.empty())
-            fail("timedelta 声明不能出现在段落内（请移到顶层）", no);
+            musicpp_seterror(i18n::tr("error.timedelta.in_section"), no);
         std::string_view rest = detail::trim(line.substr(9));
         const auto sp = rest.find_first_of(" \t");
         if (sp == std::string_view::npos)
-            fail(std::format("timedelta 声明格式应为 timedelta <名> = <时间值>: {}", line), no);
+            musicpp_seterror(i18n::tr("error.timedelta.format", line), no);
         const std::string_view name = rest.substr(0, sp);
         rest = detail::trim(rest.substr(sp));
         if (!rest.starts_with('='))
-            fail(std::format("timedelta 声明缺少 '=': {}", line), no);
+            musicpp_seterror(i18n::tr("error.timedelta.missing_eq", line), no);
         const std::string_view val = detail::trim(rest.substr(1));
         if (name.empty() || (name[0] >= '0' && name[0] <= '9'))
-            fail(std::format("timedelta 名不合法: {}", line), no);
+            musicpp_seterror(i18n::tr("error.timedelta.bad_name", line), no);
         if (timedeltas_.contains(std::string(name)))
-            fail(std::format("timedelta '{}' 重复声明（常量的值不可变）", name), no);
+            musicpp_seterror(i18n::tr("error.timedelta.duplicate", name), no);
         const double ms = resolve_time(val, no);
         timedeltas_.emplace(name, ms);
         log::debug("timedelta {} = {:.0f} ms", name, ms);
@@ -568,7 +570,7 @@ private:
     // 时间值求值：字面量 + timedelta 变量表（实现见 parse/time.hpp 纯函数模块）
     double resolve_time(std::string_view tok, int no) {
         auto r = time::resolve(tok, timedeltas_);
-        if (!r) fail(r.error(), no);
+        if (!r) musicpp_seterror(r.error(), no);
         return *r;
     }
 
@@ -651,7 +653,7 @@ inline core::Score build_from_file(const std::string& path, int velocity = 100) 
     const std::filesystem::path fsp(
         std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size()));
     std::ifstream in(fsp, std::ios::binary);
-    if (!in) throw std::runtime_error(std::format("无法打开文件: {}", path));
+    if (!in) throw std::runtime_error(i18n::tr("error.file.open", path));
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     log::info("读取谱面: {} ({} 字节)", path, text.size());
     // import 的相对路径以谱面文件所在目录为基准

@@ -85,7 +85,7 @@ collect_sections(std::string_view text) {
             main_lines.push_back({std::string(line), no});
             return;
         }
-        if (line == "}") fail("孤立的 '}'（没有匹配的段落定义）", no, {});
+        if (line == "}") musicpp_seterror(i18n::tr("error.brace.orphan"), no, {});
         main_lines.push_back({std::string(line), no});
     };
 
@@ -99,9 +99,9 @@ collect_sections(std::string_view text) {
         const int def = cur->def_line;
         const std::string name = cur->name;
         delete cur;
-        fail(std::format("段落 <{}> 的定义未闭合（缺少 '}}'）", name), def, {});
+        musicpp_seterror(i18n::tr("error.section.unclosed", name), def, {});
     }
-    if (in_ensemble) fail("ensemble block 未闭合（缺少 '}'）", no, {});
+    if (in_ensemble) musicpp_seterror(i18n::tr("error.ensemble.unclosed"), no, {});
     return {std::move(main_lines), std::move(sections)};
 }
 

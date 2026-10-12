@@ -39,6 +39,19 @@ void usage() {
 } // namespace
 
 int real_main(int argc, const std::vector<std::string>& args) {
+    // 报错国际化：语言文件在 <exe 目录>/lang/，MUSICPP_LANG 环境变量选择语言
+    {
+        std::string exe;
+#ifdef _WIN32
+        wchar_t buf[MAX_PATH];
+        if (const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH); n > 0)
+            exe = wide_to_utf8(std::wstring_view(buf, n));
+#endif
+        if (!exe.empty()) {
+            const auto pos = exe.find_last_of("/\\");
+            musicpp::i18n::init(pos == std::string::npos ? "." : exe.substr(0, pos));
+        }
+    }
     if (argc < 2) { usage(); return 1; }
 
     std::string path;

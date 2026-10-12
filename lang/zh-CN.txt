@@ -1,0 +1,65 @@
+# musicpp 语言文件：简体中文（zh-CN，默认内置，此文件用于覆盖/参考）
+# 格式：key = value，# 注释，UTF-8 编码
+# 带 {} 占位符的消息中，花括号字面量需转义为 {{ }}
+
+error.limit.expansion_steps = 展开规模超出上限（{} 行，Billion Laughs 防护；可用 musicpp::config::max_expansion_steps 调整）
+error.limit.events = 音符事件总数超出上限（{}，Billion Laughs 防护；可用 musicpp::config::max_events 调整）
+error.limit.ticks = 全曲总时长超出上限（{} tick；可用 musicpp::config::max_ticks 调整）
+
+error.section.nested = 段落定义不能嵌套或出现在此处
+error.section.duplicate = 段落 <{}> 重复定义
+error.section.unclosed = 段落 <{}> 的定义未闭合（缺少 '}}'）
+error.section.not_ready = 段落 <{}> 正在解析中，尚不能 play（要求先闭合后引用）
+error.section.undefined = 未定义（或尚未解析到）的段落 <{}>
+error.section.cycle = 段落引用形成环: {}
+error.section.too_deep = 段落嵌套过深（>64 层）
+error.brace.orphan = 孤立的 '}'（没有匹配的段落定义）
+error.ensemble.format = ensemble 指令格式应为 ensemble {{: {}
+error.ensemble.unclosed = ensemble block 未闭合（缺少 '}'）
+error.ensemble.member_play = ensemble 成员必须是 play 指令（成员内的 speed/wait 请改用音符时值表达）
+
+error.tempo.range = 速度超出范围: {}
+error.speed.missing_value = speed 指令缺少数值: {}
+error.speed.bpm_needs_number = bpm 需要数值（timedelta 是毫秒量纲，请用于 speed milisec）: {}
+error.speed.bad_number = 速度数值无法解析: {}
+error.speed.bpm_range = bpm 超出范围: {}
+error.speed.unknown_unit = 未知速度单位 '{}'（支持 bpm / milisec）
+
+error.play.format = play 指令格式应为 play 名 或 play <名>: {}
+error.play.transpose_format = play 移调参数格式应为 名(+N)/名(-N): {}
+error.play.transpose_sign = play 移调参数需要带符号的整数（半音数）: {}
+error.play.transpose_range = 移调超出范围（±36 半音）: {}
+error.play.transpose_pitch = 移调 {:+d} 后音高超出 MIDI 范围（{}）
+
+error.import.top_level_only = import 只能在顶层使用
+error.import.format = import 指令格式应为 import "路径": {}
+error.import.cycle = import 形成环: {}
+error.import.not_found = import 的文件不存在: {}
+
+error.instrument.missing = instrument 指令缺少乐器名: {}
+warn.instrument.unknown = 未知乐器 '{}'（第 {} 行），回退标准音色 [钢琴]
+error.echo.arg = echo 指令参数应为 on/off: {}
+error.noteoff.arg = noteoff 指令参数应为 on/off: {}
+
+error.wait.missing = wait 指令缺少时间值: {}
+error.timedelta.in_section = timedelta 声明不能出现在段落内（请移到顶层）
+error.timedelta.format = timedelta 声明格式应为 timedelta <名> = <时间值>: {}
+error.timedelta.missing_eq = timedelta 声明缺少 '=': {}
+error.timedelta.bad_name = timedelta 名不合法: {}
+error.timedelta.duplicate = timedelta '{}' 重复声明（常量的值不可变）
+error.time.missing_number = 时间值缺少数值: {}
+error.time.bad_number = 时间数值无法解析: {}
+error.time.unknown_unit = 未知时间单位 '{}'（支持 ms/s/m/h/d）: {}
+error.time.unit_order = 时间单位应按从大到小书写（如 1m30s，而非 {}）
+error.time.range = 时间值超出范围: {}
+error.time.undefined_var = 未定义的 timedelta '{}'
+
+error.chord.nested = 和弦括号嵌套
+error.chord.mismatch = 括号不匹配
+error.chord.unclosed = 和弦括号未闭合
+error.line.illegal_char = 非法字符 '{}'
+error.pitch.octave_range = 八度超出范围
+error.pitch.midi_range = 音高超出 MIDI 范围
+
+error.file.open = 无法打开文件: {}
+hint.did_you_mean = ，你的意思是 <{}> 吗？

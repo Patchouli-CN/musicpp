@@ -10,6 +10,8 @@
 //     500ms  90s  1m30s  1h30m15.5s  2m100ms；无单位按 ms
 // ════════════════════════════════════════════════════════════════════════════
 
+#include "../i18n.hpp"
+
 #include <cctype>
 #include <charconv>
 #include <expected>
@@ -24,7 +26,7 @@ namespace musicpp::parse::time {
 // 纯字面量解析：1m30s → 90000.0（毫秒）
 inline std::expected<double, std::string> parse_literal(std::string_view tok) {
     if (tok.empty() || !(std::isdigit((unsigned char)tok[0]) || tok[0] == '.'))
-        return std::unexpected(std::format("时间值缺少数值: {}", tok));
+        return std::unexpected(i18n::tr("error.time.missing_number", tok));
     static constexpr std::pair<std::string_view, double> UNITS[] = {
         {"ms", 1}, {"s", 1000}, {"m", 60000}, {"h", 3600000}, {"d", 86400000}};
     double total = 0.0;
@@ -34,11 +36,11 @@ inline std::expected<double, std::string> parse_literal(std::string_view tok) {
         size_t j = i;
         while (j < tok.size() && (std::isdigit((unsigned char)tok[j]) || tok[j] == '.')) ++j;
         if (j == i)
-            return std::unexpected(std::format("时间值缺少数值: {}", tok));
+            return std::unexpected(i18n::tr("error.time.missing_number", tok));
         double v = 0;
         const auto [ptr, ec] = std::from_chars(tok.data() + i, tok.data() + j, v);
         if (ec != std::errc{} || ptr != tok.data() + j)
-            return std::unexpected(std::format("时间数值无法解析: {}", tok));
+            return std::unexpected(i18n::tr("error.time.bad_number", tok));
         size_t k = j;
         while (k < tok.size() && std::isalpha((unsigned char)tok[k])) ++k;
         const std::string_view unit = tok.substr(j, k - j);
@@ -49,18 +51,16 @@ inline std::expected<double, std::string> parse_literal(std::string_view tok) {
             for (int r = 0; r < 5; ++r)
                 if (UNITS[r].first == unit) { mult = UNITS[r].second; rank = r; found = true; break; }
             if (!found)
-                return std::unexpected(
-                    std::format("未知时间单位 '{}'（支持 ms/s/m/h/d）: {}", unit, tok));
+                return std::unexpected(i18n::tr("error.time.unknown_unit", unit, tok));
         }
         if (rank >= last_rank)
-            return std::unexpected(
-                std::format("时间单位应按从大到小书写（如 1m30s，而非 {}）", tok));
+            return std::unexpected(i18n::tr("error.time.unit_order", tok));
         last_rank = rank;
         total += v * mult;
         i = k;
     }
     if (total <= 0 || total > 86400000.0)
-        return std::unexpected(std::format("时间值超出范围: {}", tok));
+        return std::unexpected(i18n::tr("error.time.range", tok));
     return total;
 }
 
@@ -70,7 +70,7 @@ resolve(std::string_view tok, const std::unordered_map<std::string, double>& var
     if (tok.empty() || !(std::isdigit((unsigned char)tok[0]) || tok[0] == '.')) {
         const auto it = vars.find(std::string(tok));
         if (it == vars.end())
-            return std::unexpected(std::format("未定义的 timedelta '{}'", tok));
+            return std::unexpected(i18n::tr("error.time.undefined_var", tok));
         return it->second;
     }
     return parse_literal(tok);
