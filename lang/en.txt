@@ -58,6 +58,8 @@ error.chord.nested = nested chord brackets
 error.chord.mismatch = mismatched brackets
 error.chord.unclosed = chord brackets not closed
 error.line.illegal_char = illegal character '{}'
+error.line.bad_velocity = velocity must be an integer in 0~127
+error.line.velocity_unclosed = velocity parenthesis '(' is not closed
 error.pitch.octave_range = octave out of range
 error.pitch.midi_range = pitch out of MIDI range
 

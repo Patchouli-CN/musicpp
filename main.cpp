@@ -88,8 +88,8 @@ int real_main(int argc, const std::vector<std::string>& args) {
                 const auto& notes = score.tracks[t].notes;
                 for (size_t i = 0; i < notes.size() && i < 12; ++i) {
                     const auto& ev = notes[i];
-                    std::cout << std::format("  tick {:>6}  midi {:>3}  dur {:>5}  ({:.0f} ms)\n",
-                                             ev.tick, ev.midi, ev.dur_ticks,
+                    std::cout << std::format("  tick {:>6}  midi {:>3}  vel {:>3}  dur {:>5}  ({:.0f} ms)\n",
+                                             ev.tick, ev.midi, ev.velocity, ev.dur_ticks,
                                              musicpp::core::ticks_to_ms(score.tempo, score.waits, ev.tick));
                 }
                 if (notes.size() > 12) std::cout << "  ...\n";

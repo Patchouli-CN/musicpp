@@ -6,6 +6,8 @@
 //   事件序列。不依赖 StreamBuilder；错误带行号与调用栈抛出 ScoreError。
 // ════════════════════════════════════════════════════════════════════════════
 
+#include <algorithm>
+#include <charconv>
 #include <format>
 #include <string>
 #include <vector>
@@ -30,6 +32,7 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
     std::vector<int> nbuf;      // 待发声的 MIDI 音（0 = 休止占位）
     bool isChord = false;
     int ctn = TICK_UNIT;        // 当前记号累积的时值
+    int cur_vel = velocity;     // 当前记号的力度（> 重音 / (n) 精确指定）
     int tick = 0;
 
     auto bad = [&](const std::string& what) -> void {
@@ -55,11 +58,12 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
                 if (!isChord && !nbuf.empty()) {
                     for (const int note : nbuf) {
                         if (note > 0)
-                            out.events.push_back({tick, note, velocity, ctn});
+                            out.events.push_back({tick, note, cur_vel, ctn});
                     }
                     nbuf.clear();
                     tick += ctn;
                     ctn = TICK_UNIT;
+                    cur_vel = velocity;
                 }
                 break;
             }
@@ -70,6 +74,21 @@ inline LineResult parse_line(std::string s, int velocity, int line_no,
             case '%': ctn /= 5; break;
             case '&': ctn /= 7; break;
             case '.': ctn = ctn * 3 / 2; break;   // 附点
+            case '>':                             // 重音记号：力度 ×1.25（封顶 127）
+                cur_vel = std::min(127, velocity * 5 / 4);
+                break;
+            case '(': {                           // 精确力度：1(80) / [135](100)
+                const auto close = s.find(')', i + 1);
+                if (close == std::string::npos)
+                    bad(i18n::tr("error.line.velocity_unclosed"));
+                int v = -1;
+                const auto [ptr, ec] = std::from_chars(s.data() + i + 1, s.data() + close, v);
+                if (ec != std::errc{} || ptr != s.data() + close || v < 0 || v > 127)
+                    bad(i18n::tr("error.line.bad_velocity"));
+                cur_vel = v;                      // 0 = 无声（占位对齐用）
+                i = (int)close;
+                break;
+            }
             case '0': nbuf.push_back(0); break;   // 休止符
             default: {
                 if (c < '1' || c > '7') bad(i18n::tr("error.line.illegal_char", c));

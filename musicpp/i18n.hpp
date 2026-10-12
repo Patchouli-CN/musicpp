@@ -86,6 +86,8 @@ inline std::unordered_map<std::string, std::string>& catalog() {
         {"error.chord.mismatch",        "括号不匹配"},
         {"error.chord.unclosed",        "和弦括号未闭合"},
         {"error.line.illegal_char",     "非法字符 '{}'"},
+        {"error.line.bad_velocity",     "力度值应为 0~127 的整数"},
+        {"error.line.velocity_unclosed","力度括号 '(' 未闭合"},
         {"error.pitch.octave_range",    "八度超出范围"},
         {"error.pitch.midi_range",      "音高超出 MIDI 范围"},
         // ── 文件 / 提示 ──
