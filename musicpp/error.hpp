@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#include "i18n.hpp"
+
 namespace musicpp {
 
 // 段落调用帧
@@ -34,11 +36,10 @@ public:
 private:
     static std::string build(const std::string& what, int line,
                              const std::vector<CallFrame>& stack) {
-        std::string msg = std::format("谱面错误: {} (第 {} 行)", what, line);
+        std::string msg = i18n::tr("error.frame.header", what, line);
         // 栈底在前：最外层调用排在最前面
         for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
-            msg += std::format("\n  在段落 <{}> (第 {} 行 'play <{}>' 调用)",
-                               it->section, it->invoke_line, it->section);
+            msg += "\n  " + i18n::tr("error.frame.call", it->section, it->invoke_line);
         }
         return msg;
     }

@@ -64,5 +64,8 @@ error.line.velocity_unclosed = 力度括号 '(' 未闭合
 error.pitch.octave_range = 八度超出范围
 error.pitch.midi_range = 音高超出 MIDI 范围
 
+error.frame.header = 谱面错误: {} (第 {} 行)
+error.frame.call = 在段落 <{0}> (第 {1} 行 'play <{0}>' 调用)
+
 error.file.open = 无法打开文件: {}
 hint.did_you_mean = ，你的意思是 <{}> 吗？

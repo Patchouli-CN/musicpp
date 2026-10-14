@@ -64,5 +64,8 @@ error.line.velocity_unclosed = velocity parenthesis '(' is not closed
 error.pitch.octave_range = octave out of range
 error.pitch.midi_range = pitch out of MIDI range
 
+error.frame.header = score error: {} (line {})
+error.frame.call = in section <{0}> (called by 'play <{0}>' at line {1})
+
 error.file.open = cannot open file: {}
 hint.did_you_mean = , did you mean <{}>?
