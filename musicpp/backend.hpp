@@ -33,11 +33,17 @@ public:
     WinMmMidiOut() {
         if (midiOutOpen(&handle_, 0, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR)
             throw std::runtime_error("无法打开 MIDI 输出设备");
+        // 系统计时器默认 ~15.6ms 粒度，sleep_until 会让快速音型抖动；
+        // 设备存活期间提到 1ms（同步/协程/流式播放都经过后端，一处覆盖）
+        timer_1ms_ = timeBeginPeriod(1) == TIMERR_NOERROR;
         log::midi.debug("MIDI 后端: winmm");
     }
     WinMmMidiOut(const WinMmMidiOut&) = delete;
     WinMmMidiOut& operator=(const WinMmMidiOut&) = delete;
-    ~WinMmMidiOut() override { midiOutClose(handle_); }
+    ~WinMmMidiOut() override {
+        midiOutClose(handle_);
+        if (timer_1ms_) timeEndPeriod(1);
+    }
 
     void note_on(int channel, int midi, int velocity) override {
         midiOutShortMsg(handle_, 0x90 | channel | (midi << 8) | (velocity << 16));
@@ -55,6 +61,7 @@ public:
 
 private:
     HMIDIOUT handle_ = nullptr;
+    bool timer_1ms_ = false;
 };
 #endif
 

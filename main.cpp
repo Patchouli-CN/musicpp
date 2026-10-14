@@ -1,6 +1,7 @@
 // musicpp — .music++ 谱面播放器
 // 用法: musicpp <file.music> [--noteoff] [--trace] [--dump] [--volume N]
 
+#include <charconv>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -67,7 +68,15 @@ int real_main(int argc, const std::vector<std::string>& args) {
         else if (a == "--noteoff" || a == "--no-echo") noteoff = true;
         else if (a == "--trace") musicpp::log::set_level(musicpp::log::Level::trace);
         else if (a == "--dump") dump = true;
-        else if (a == "--volume" && i + 1 < argc) volume = std::stoi(args[++i]);
+        else if (a == "--volume" && i + 1 < argc) {
+            // 力度写进 MIDI 数据字节（7 位），越界会污染相邻字段
+            const std::string& v = args[++i];
+            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), volume);
+            if (ec != std::errc{} || ptr != v.data() + v.size() || volume < 0 || volume > 127) {
+                std::cerr << "invalid --volume: " << v << " (expected integer 0-127)\n";
+                return 1;
+            }
+        }
         else if (a.starts_with('-') && a.size() > 1) {
             std::cerr << "unknown option: " << a << "\n";
             usage();

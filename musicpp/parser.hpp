@@ -106,13 +106,19 @@ public:
         const std::string_view line = detail::trim(raw);
 
         // 段落收录中：所有行进入段落体，直到 '}'（此时段落才可被 play）
+        // 段落体内的 ensemble { ... } 的 '}' 属于 ensemble，不闭合段落（与 collect_sections 一致）
         if (collecting_) {
-            if (line == "}") {
+            if (line == "}" && !collecting_in_ensemble_) {
                 const std::string name = collecting_->name;
+                const size_t n = collecting_->lines.size();
                 register_section(name, std::move(*collecting_), line_no_);
-                log::trace("段落 <{}> block 收录 {} 行（已可引用）", name, collecting_->lines.size());
+                log::trace("段落 <{}> block 收录 {} 行（已可引用）", name, n);
                 collecting_.reset();
             } else {
+                if (detail::is_directive(line, "ensemble") && line.ends_with('{'))
+                    collecting_in_ensemble_ = true;
+                else if (line == "}")
+                    collecting_in_ensemble_ = false;
                 collecting_->lines.push_back({std::string(line), line_no_});
             }
             return;
@@ -178,7 +184,9 @@ private:
 
     core::Score score_;                                            // 增量生长的 IR
     std::optional<Section> collecting_;                            // 收录中的段落
+    bool collecting_in_ensemble_ = false;                          // 段落体收录中遇到 ensemble {
     bool collecting_ensemble_ = false;                             // 收录中的 ensemble block
+    int ensemble_depth_ = 0;                                       // 正在展开 ensemble 成员（>0 禁止 speed/wait）
     std::vector<SrcLine> ensemble_members_;
     std::optional<SrcLine> pending_;                               // 配对缓冲（一行）
     std::unordered_map<std::string, Section> sections_;            // 已闭合段落
@@ -201,7 +209,15 @@ private:
             musicpp_seterror(std::format("段落 <{}> 重复定义", qname), line);
     }
 
+    // 速度映射与墙钟停顿是全曲共享的：ensemble 成员内变速/停顿会波及其他声部，
+    // 且成员回到起点重跑会让 tempo/waits 失去 tick 升序，直接报错
+    void check_not_in_ensemble(int line) {
+        if (ensemble_depth_ > 0)
+            musicpp_seterror(i18n::tr("error.ensemble.tempo_in_member"), line);
+    }
+
     void set_tempo(double mpq, int line) {
+        check_not_in_ensemble(line);
         if (mpq <= 0 || mpq > 60000)
             musicpp_seterror(i18n::tr("error.tempo.range", mpq), line);
         clock_.set_tempo(tick_, mpq);
@@ -430,7 +446,9 @@ private:
 
             tick_ = start;
             track_base_ = it->second;
+            ++ensemble_depth_;
             directive_play(ml, m.no);
+            --ensemble_depth_;
             next_free = std::max(next_free, score_.tracks.size());
             end = std::max(end, tick_);
         }
@@ -540,6 +558,7 @@ private:
     void directive_wait(std::string_view line, int no) {
         const std::string_view val = detail::trim(line.substr(4));
         if (val.empty()) musicpp_seterror(i18n::tr("error.wait.missing", line), no);
+        check_not_in_ensemble(no);
         const double ms = resolve_time(val, no);
         clock_.add_wait(tick_, ms);
         score_.waits.push_back({tick_, ms});

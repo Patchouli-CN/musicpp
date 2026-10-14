@@ -17,6 +17,7 @@ error.brace.orphan = 孤立的 '}'（没有匹配的段落定义）
 error.ensemble.format = ensemble 指令格式应为 ensemble {{: {}
 error.ensemble.unclosed = ensemble block 未闭合（缺少 '}'）
 error.ensemble.member_play = ensemble 成员必须是 play 指令（成员内的 speed/wait 请改用音符时值表达）
+error.ensemble.tempo_in_member = ensemble 成员（及其调用的段落）内不能使用 speed/wait：速度与停顿是全曲共享的，会波及其他声部
 
 error.tempo.range = 速度超出范围: {}
 error.speed.missing_value = speed 指令缺少数值: {}

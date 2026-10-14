@@ -17,6 +17,7 @@ error.brace.orphan = stray '}' (no matching section definition)
 error.ensemble.format = ensemble directive should be: ensemble {{ followed by play lines: {}
 error.ensemble.unclosed = ensemble block is not closed (missing '}')
 error.ensemble.member_play = ensemble members must be play directives (express speed/wait inside sections via note durations)
+error.ensemble.tempo_in_member = speed/wait cannot be used inside ensemble members (or sections they play): tempo and pauses are global and would affect other voices
 
 error.tempo.range = tempo out of range: {}
 error.speed.missing_value = speed directive needs a value: {}
